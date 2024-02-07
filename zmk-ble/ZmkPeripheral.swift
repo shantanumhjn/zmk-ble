@@ -50,45 +50,49 @@ class ZmkPeripheral: NSObject, CBPeripheralDelegate, ObservableObject {
     
     func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: Error?) {
         logger.info("didDiscoverServices");
-        let batteryService = peripheral.services?.first(where: { s in s.uuid == uuidBatteryService})
-        if batteryService != nil{
-            logger.info("Discovered \(batteryService!.description)")
-            peripheral.discoverCharacteristics([uuidBatteryLevelCharacteristic], for: batteryService!)
+        
+        peripheral.services?.forEach{service in
+            if service.uuid == uuidBatteryService {
+                logger.info("Found battery service \(service)")
+                peripheral.discoverCharacteristics([uuidBatteryLevelCharacteristic], for: service)
+            }
         }
     }
     
     func peripheral(_ peripheral: CBPeripheral, didDiscoverCharacteristicsFor service: CBService, error: Error?) {
         logger.info("didDiscoverCharacteristics")
-        service.characteristics?.forEach({characteristics in
-            logger.info("Discovered \(characteristics.description)")
-            peripheral.discoverDescriptors(for: characteristics)
-        })
+        service.characteristics?.forEach{characteristic in
+            logger.info("found characteristic \(characteristic)")
+            peripheral.discoverDescriptors(for: characteristic)
+//            peripheral.readValue(for: characteristic)
+        }
+        
     }
     
     func peripheral(_ peripheral: CBPeripheral, didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {
         logger.info("didUpdateValueForCharacteristic \(characteristic)")
-        guard let descriptor = characteristic.descriptors?.first(where: {d in d.uuid.uuidString == CBUUIDCharacteristicUserDescriptionString}) else {
-            return
-        }
-        guard let descriptorValue = getUserDescription(for: descriptor) else {
-            return
-        }
         
-        guard let firstByte = characteristic.value?.first else {
-            // handle unexpected empty data
-            return
+        var batteryLevel:UInt8 = characteristic.value?.first ?? 0
+
+        if (batteryLevel == ZmkPeripheral.NULL_VALUE) {
+            logger.info("got null value")
+            batteryLevel = 0
         }
-        let batteryLevel = firstByte
-      
-        if (batteryLevel == ZmkPeripheral.NULL_VALUE) { return }
+
+        logger.info("batteryLevel \(batteryLevel)")
         
-        if (descriptorValue == "Central") {
-            centralBatteryLevel = batteryLevel;
-        } else if (descriptorValue == "Peripheral") {
-            peripheralBatteryLevel = batteryLevel;
+        let descriptor = characteristic.descriptors?.first(where: {d in d.uuid.uuidString == CBUUIDCharacteristicUserDescriptionString})
+        if descriptor != nil {
+            peripheralBatteryLevel = batteryLevel
+            let peripheralName: String = descriptor?.value as? String ?? "Uknown"
+            logger.info("possible peripheral name \(peripheralName)")
+        } else {
+            centralBatteryLevel = batteryLevel
         }
+
         batteryHistory.append(HistoricalBatteryValue(date: Date(), central: centralBatteryLevel, peripheral: peripheralBatteryLevel))
-        logger.info("\(descriptorValue) battery level: \(batteryLevel)")
+        
+        peripheral.setNotifyValue(true, for: characteristic)
     }
     
     func getUserDescription(for descriptor: CBDescriptor) -> String? {
@@ -100,16 +104,18 @@ class ZmkPeripheral: NSObject, CBPeripheralDelegate, ObservableObject {
     }
     
     func peripheral(_ peripheral: CBPeripheral, didDiscoverDescriptorsFor characteristic: CBCharacteristic, error: Error?) {
-        logger.info("didDiscoverDescriptorsFor")
+        logger.info("didDiscoverDescriptorsFor \(characteristic)")
+        
         guard let userDescriptor = characteristic.descriptors?.first( where: { d in d.uuid.uuidString == CBUUIDCharacteristicUserDescriptionString }) else {
+            peripheral.readValue(for: characteristic)
             return
         }
         peripheral.readValue(for: userDescriptor)
     }
     
     func peripheral(_ peripheral: CBPeripheral, didUpdateValueFor descriptor: CBDescriptor, error: Error?) {
+        logger.info("didUpdateValueFor descriptor \(descriptor)")
         guard let characteristic = descriptor.characteristic else { return }
         peripheral.readValue(for: characteristic)
-        peripheral.setNotifyValue(true, for: characteristic)
     }
 }

@@ -88,6 +88,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, CBCentralManagerDelegate {
         peripherals.forEach({ p in
             peripheral = p
             logger.info("\(p.identifier)")
+            logger.info("connecting to peripheral name: \(p.name!)")
             central.connect(p)
         })
         if (peripherals.isEmpty) {
